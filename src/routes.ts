@@ -150,5 +150,25 @@ export async function appRoutes(app: FastifyInstance){
 
         return summary
     })
+
+
+    app.delete('/habits/:id/delete',async (request)=>{
+      const deleteParams = z.object({
+        id: z.string().uuid(),
+      });
+      const { id } = deleteParams.parse(request.params); 
+      
+      try{
+        await prisma.habit.delete({
+          where: {
+            id: id
+          },
+        })
+      }catch(error){
+        console.log(error)
+      }
+      
+
+    })
 }
 
