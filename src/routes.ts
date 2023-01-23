@@ -1,3 +1,4 @@
+
 import dayjs from 'dayjs'
 import { FastifyInstance } from "fastify"
 import { z } from 'zod'
@@ -33,6 +34,11 @@ export async function appRoutes(app: FastifyInstance){
     })
 
     app.get('/day', async (request)=>{
+
+
+
+
+
         const getDayParams = z.object({
             date:z.coerce.date()
         })
@@ -42,7 +48,10 @@ export async function appRoutes(app: FastifyInstance){
         const parsedDate = dayjs(date).startOf('day')
         const weekDay = parsedDate.get('day')
 
-        const possibleHabits = await prisma.habit.findMany({
+        const finishedHabits = await prisma.completedHabit.findMany()
+
+
+        let possibleHabits = await prisma.habit.findMany({
             where: {
                 created_at: {
                     lte: date,
@@ -54,6 +63,19 @@ export async function appRoutes(app: FastifyInstance){
                 }
             }
         })
+        
+        let prevPossibleHabits = possibleHabits
+
+        finishedHabits.map((finishedHabit)=>{
+          possibleHabits.map((possibleHabit)=>{
+            if(finishedHabit.habit_id === possibleHabit.id){
+              if(dayjs(parsedDate).isAfter(dayjs(finishedHabit.completed_day), 'day')){
+                possibleHabits = prevPossibleHabits.filter(possibleHabit=>possibleHabit.id !== finishedHabit.habit_id)
+              }
+            }
+          })
+        })
+        
 
         const day = await prisma.day.findUnique({
             where: {
@@ -170,5 +192,94 @@ export async function appRoutes(app: FastifyInstance){
       
 
     })
+
+
+    app.post('/completedHabits',async(request)=>{
+
+      const createCompletedHabitBody = z.object({
+        id: z.string()
+      })
+
+      const {id} = createCompletedHabitBody.parse(request.body)
+      const today = dayjs().startOf("day").toDate();
+      
+      await prisma.completedHabit.create({
+        data:{
+          completed_day: today,
+          habit_id: id
+        }
+      })
+    })
+
+    app.get('/allHabits',async()=>{
+      const habits = await prisma.habit.findMany({
+        
+        include:{
+          weekDays:true
+        }
+      })
+      const completedHabits = await prisma.completedHabit.findMany()
+      type habitProps = Array<{
+        id: string,
+        title: string,
+        created_at: Date,
+        weekDays : number[]
+        completed: boolean,
+        completed_data?:{
+          completed_date:  Date | undefined
+        } 
+      }>|undefined
+      var habitsList: habitProps  = []
+
+      habits.map((habit)=>{
+
+        let weekDayList: number[] = []
+        habit.weekDays.map((weekDay)=>{
+          const prevWeekDayList = weekDayList
+          weekDayList = [...prevWeekDayList, weekDay.week_day]
+        })
+
+
+        var isCompleted = false
+        var completedDate
+
+        completedHabits.map((completedHabit)=>{
+          if(completedHabit.habit_id === habit.id){
+            isCompleted = true
+            completedDate = completedHabit.completed_day
+          }
+        })
+
+        const prevHabitList: habitProps = habitsList
+
+        if(isCompleted){  
+          habitsList = [...(prevHabitList || []), {
+          id: habit.id,
+          title: habit.title,
+          created_at: habit.created_at,
+          weekDays: weekDayList,
+          completed: isCompleted,
+          completed_data:{
+            completed_date: completedDate
+          }
+          }]
+
+        }else{
+          habitsList = [...(prevHabitList || []), {
+            id: habit.id,
+            title: habit.title,
+            created_at: habit.created_at,
+            weekDays: weekDayList,
+            completed: isCompleted,
+            completed_data:{
+              completed_date: undefined
+            }
+            }]
+        }
+        
+      })
+      return habitsList
+    })
 }
+
 
